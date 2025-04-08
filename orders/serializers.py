@@ -1,10 +1,34 @@
 from rest_framework import serializers
 from .models import Customer, Product, Order, OrderItem
+from django.utils import timezone
+from django.db.models import Sum, F, DecimalField, ExpressionWrapper
+from datetime import datetime
+
+
 
 class CustomerSerializer(serializers.ModelSerializer):
+    total_amount = serializers.SerializerMethodField()
+
+    def get_total_amount(self, obj):
+        today = datetime.today()
+        first_day = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if today.month == 12:
+            next_month = today.replace(year=today.year + 1, month=1, day=1)
+        else:
+            next_month = today.replace(month=today.month + 1, day=1)
+
+        items = OrderItem.objects.filter(
+            order__customer=obj,
+            order__date__gte=first_day,
+            order__date__lt=next_month
+        ).select_related("product")
+
+        return sum(item.quantity * item.product.price for item in items)
+
     class Meta:
         model = Customer
-        fields = ['customer_id', 'name']
+        fields = ['id', 'name', 'phone_number','total_amount']
+    
 
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
