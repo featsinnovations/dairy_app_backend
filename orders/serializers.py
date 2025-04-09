@@ -3,13 +3,22 @@ from .models import Customer, Product, Order, OrderItem
 from django.utils import timezone
 from django.db.models import Sum, F, DecimalField, ExpressionWrapper
 from datetime import datetime
+from drf_spectacular.utils import extend_schema_field
 
+
+
+class CustomerMonthlyTotalSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    total_amount = serializers.FloatField()
 
 
 class CustomerSerializer(serializers.ModelSerializer):
     total_amount = serializers.SerializerMethodField()
 
-    def get_total_amount(self, obj):
+    @extend_schema_field(serializers.FloatField())
+
+    def get_total_amount(self, obj) -> float:
         today = datetime.today()
         first_day = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         if today.month == 12:
@@ -49,12 +58,12 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True)
     total_amount = serializers.SerializerMethodField()
-
+    @extend_schema_field(serializers.FloatField())
     class Meta:
         model = Order
         fields = ['id', 'customer', 'date', 'items', 'total_amount']
 
-    def get_total_amount(self, obj):
+    def get_total_amount(self, obj) -> float:
         return sum(item.product.price * item.quantity for item in obj.items.all())
 
     def create(self, validated_data):

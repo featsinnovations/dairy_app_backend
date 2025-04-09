@@ -2,18 +2,19 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .models import Customer, Product, Order, OrderItem
-from .serializers import OrderSerializer, ProductSerializer, CustomerSerializer
+from .serializers import OrderSerializer, ProductSerializer, CustomerSerializer, CustomerMonthlyTotalSerializer
 from .models import Order, Product, Customer
 from django.shortcuts import get_object_or_404
 from rest_framework.generics import ListAPIView
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
 from django.db.models import Sum, F, DecimalField, ExpressionWrapper
-from django.utils import timezone
+from django.utils import timezone as tz
 from .models import Customer, Order
-from datetime import datetime
+from datetime import datetime, timedelta
 from pytz import timezone
-
+from dateutil.relativedelta import relativedelta
+from calendar import monthrange
 
 
 
@@ -33,15 +34,19 @@ def verify_customer(request, id):
         serializer = CustomerSerializer(customer)
         # total_amount = customer.order_set.annotate(order_total=Sum(ExpressionWrapper(F('items__quantity') * F('items__product__price'), output_field=DecimalField()))).aggregate(total=Sum('order_total'))['total'] or 0
         data = serializer.data
+        
         # data['total_order_amount'] = float(total_amount)
         return Response(data, status=status.HTTP_200_OK)
     except Customer.DoesNotExist:
         return Response({"error": "Customer not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
+@extend_schema(
+    responses={200: CustomerMonthlyTotalSerializer(many=True)} 
+)
 @api_view(["GET"])
 def customer_monthly_totals(request):
-    now = timezone.now()
+    now = tz.now()
 
     # Step 1: Get totals only for customers who placed orders this month
     totals = OrderItem.objects.filter(
@@ -75,6 +80,7 @@ def customer_monthly_totals(request):
 
 
 class OrderCreateView(APIView):
+    serializer_class = OrderSerializer
     def post(self, request):
         id = request.data.get('id')
         try:
@@ -89,24 +95,45 @@ class OrderCreateView(APIView):
         return Response(serializer.errors, status=400)
 
 class CustomerOrderHistoryAPIView(APIView):
-    def get(self, request, id):
-        today = datetime.today()
-        first_day = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        if today.month == 12:
-            next_month = today.replace(year=today.year + 1, month=1, day=1)
-        else:
-            next_month = today.replace(month=today.month + 1, day=1)
-        customer = get_object_or_404(Customer, id=id)
-        orders = Order.objects.filter(customer=customer,date__gte=first_day,date__lt=next_month).order_by('-date', '-id')
 
+    def get(self, request, id):
+        print("Method is being called...")
+        print(request.GET)
+        
+        # Get month offset from query params, default to 0 (current month)
+        month_offset = int(request.query_params.get('month_offset', 0))
+        
+        # Get the current date and calculate target month by applying the offset
+        now = tz.now()
+        target_month = now + relativedelta(months=month_offset)
+        
+        # Calculate the start of the target month and the start of the next month
+        target_month_start = target_month.replace(day=1)  # First day of the target month
+        next_month_start = (target_month + relativedelta(months=1)).replace(day=1)  # First day of the next month
+        
+        # Get the customer
+        customer = get_object_or_404(Customer, id=id)
+        
+        # Filter orders for the given customer in the target month
+        orders = Order.objects.filter(
+            customer=customer,
+            date__gte=target_month_start,
+            date__lt=next_month_start
+        ).order_by('-date', '-id')
+        total_month_amount = OrderItem.objects.filter(order__in=orders).aggregate(total_amount=Sum(F('quantity') * F('product__price')))['total_amount'] or 0
+
+        # Prepare the result dictionary
         result = {
             "id": customer.id,
             "customer_name": customer.name,
+            "month": target_month_start.strftime("%B %Y"),
+            "total_amount_for_month": float(total_month_amount),
             "orders": []
         }
 
+        # Process orders
         for order in orders:
-            items = OrderItem.objects.filter(order=order).select_related('product')
+            items = order.items.select_related('product')
             item_list = []
             total_amount = 0
 
@@ -121,9 +148,10 @@ class CustomerOrderHistoryAPIView(APIView):
                     "quantity": quantity,
                     "price": float(price),
                 })
-                ist = timezone("Asia/Kolkata")
-                order_time_ist = order.date.astimezone(ist)
-                formatted_date = order_time_ist.strftime('%Y-%m-%d %I:%M:%S %p')
+
+            # Convert order date to 'Asia/Kolkata' timezone
+            order_time_ist = order.date.astimezone(timezone("Asia/Kolkata"))
+            formatted_date = order_time_ist.strftime('%Y-%m-%d %I:%M:%S %p')
 
             result["orders"].append({
                 "order_id": order.id,
@@ -132,7 +160,7 @@ class CustomerOrderHistoryAPIView(APIView):
                 "items": item_list
             })
 
-        return Response(result, status=status.HTTP_200_OK)
+        return Response(result, status=200)
 
 class ProductListAPIView(ListAPIView):
     queryset = Product.objects.all()
