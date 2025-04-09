@@ -21,6 +21,7 @@ parso==0.8.4
 prompt_toolkit==3.0.50
 pure_eval==0.2.3
 Pygments==2.19.1
+python-dateutil==2.9.0.post0
 PyYAML==6.0.2
 referencing==0.36.2
 rpds-py==0.24.0
