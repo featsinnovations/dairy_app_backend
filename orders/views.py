@@ -9,10 +9,10 @@ from rest_framework.generics import ListAPIView
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
 from django.db.models import Sum, F, DecimalField, ExpressionWrapper
-from django.utils import timezone as tz
+from django.utils import timezone
 from .models import Customer, Order
 from datetime import datetime, timedelta
-from pytz import timezone
+from pytz import timezone as pytz_timezone
 from dateutil.relativedelta import relativedelta
 from calendar import monthrange
 
@@ -46,7 +46,7 @@ def verify_customer(request, id):
 )
 @api_view(["GET"])
 def customer_monthly_totals(request):
-    now = tz.now()
+    now = timezone.now()
 
     # Step 1: Get totals only for customers who placed orders this month
     totals = OrderItem.objects.filter(
@@ -95,68 +95,80 @@ class OrderCreateView(APIView):
         return Response(serializer.errors, status=400)
 
 class CustomerOrderHistoryAPIView(APIView):
-
     def get(self, request, id):
-        print("Method is being called...")
-        print(request.GET)
+        # Get month and year from query params
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
         
-        # Get month offset from query params, default to 0 (current month)
-        month_offset = int(request.query_params.get('month_offset', 0))
+        india_timezone = pytz_timezone("Asia/Kolkata")
+        now = timezone.now().astimezone(india_timezone)
         
-        # Get the current date and calculate target month by applying the offset
-        now = tz.now()
-        target_month = now + relativedelta(months=month_offset)
+        if year and month:
+            # Use specified year and month
+            try:
+                target_date = india_timezone.localize(
+                    datetime(int(year), int(month), 1)
+                )
+            except ValueError:
+                return Response({"error": "Invalid month/year parameters"}, status=400)
+        else:
+            # Default to current month if no parameters provided
+            target_date = now.replace(day=1)
         
-        # Calculate the start of the target month and the start of the next month
-        target_month_start = target_month.replace(day=1)  # First day of the target month
-        next_month_start = (target_month + relativedelta(months=1)).replace(day=1)  # First day of the next month
+        # Calculate date range for the whole month
+        date_start = target_date.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        date_end = date_start + relativedelta(months=1)
         
         # Get the customer
         customer = get_object_or_404(Customer, id=id)
         
-        # Filter orders for the given customer in the target month
+        # Filter orders
         orders = Order.objects.filter(
             customer=customer,
-            date__gte=target_month_start,
-            date__lt=next_month_start
+            date__gte=date_start,
+            date__lt=date_end
         ).order_by('-date', '-id')
-        total_month_amount = OrderItem.objects.filter(order__in=orders).aggregate(total_amount=Sum(F('quantity') * F('product__price')))['total_amount'] or 0
 
-        # Prepare the result dictionary
+        # Calculate total amount
+        total_amount = OrderItem.objects.filter(
+            order__in=orders
+        ).aggregate(total_amount=Sum(F('quantity') * F('product__price')))['total_amount'] or 0
+
+        # Prepare response
         result = {
-            "id": customer.id,
+            "customer_id": customer.id,
             "customer_name": customer.name,
-            "month": target_month_start.strftime("%B %Y"),
-            "total_amount_for_month": float(total_month_amount),
+            "month_year": date_start.strftime("%B %Y"),  # e.g. "April 2023"
+            "total_amount": float(total_amount),
             "orders": []
         }
 
-        # Process orders
         for order in orders:
             items = order.items.select_related('product')
             item_list = []
-            total_amount = 0
+            order_total = 0
 
             for item in items:
                 price = item.product.price
                 quantity = item.quantity
-                total = price * quantity
-                total_amount += total
+                item_total = price * quantity
+                order_total += item_total
 
                 item_list.append({
                     "product": item.product.name,
                     "quantity": quantity,
                     "price": float(price),
+                    "total": float(item_total)
                 })
 
-            # Convert order date to 'Asia/Kolkata' timezone
-            order_time_ist = order.date.astimezone(timezone("Asia/Kolkata"))
-            formatted_date = order_time_ist.strftime('%Y-%m-%d %I:%M:%S %p')
-
+            order_time_ist = order.date.astimezone(india_timezone)
+            
             result["orders"].append({
                 "order_id": order.id,
-                "date": formatted_date,
-                "total_amount": float(total_amount),
+                "date": order_time_ist.strftime('%Y-%m-%d %I:%M:%S %p'),
+                "total_amount": float(order_total),
                 "items": item_list
             })
 
