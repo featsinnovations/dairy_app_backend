@@ -52,7 +52,10 @@ class CustomerAdmin(admin.ModelAdmin):
 
 # Register each model
 admin.site.register(Customer, CustomerAdmin)
-admin.site.register(Product)
+class ProductAdmin(admin.ModelAdmin):
+    list_display = ('name', 'nickname', 'price', 'image_path', 'quentity')
+
+admin.site.register(Product, ProductAdmin)
 admin.site.register(Order)
 admin.site.register(OrderItem)
 

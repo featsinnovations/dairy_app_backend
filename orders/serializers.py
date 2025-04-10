@@ -42,7 +42,8 @@ class CustomerSerializer(serializers.ModelSerializer):
 class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
-        fields = ['id', 'name', 'price']
+        image_path = serializers.ImageField(use_url=True)
+        fields = ['id', 'name', 'nickname', 'price', 'image_path', 'quentity']
         
 class OrderItemSerializer(serializers.ModelSerializer):
     product = ProductSerializer(read_only=True)
