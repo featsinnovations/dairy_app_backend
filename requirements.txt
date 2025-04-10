@@ -16,6 +16,7 @@ jedi==0.19.2
 jsonschema==4.23.0
 jsonschema-specifications==2024.10.1
 matplotlib-inline==0.1.7
+pillow==11.1.0
 packaging==24.2
 parso==0.8.4
 prompt_toolkit==3.0.50
