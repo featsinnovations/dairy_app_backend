@@ -25,9 +25,14 @@ class Product(models.Model):
 class Order(models.Model):
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE)
     date = models.DateTimeField(auto_now_add=True)
+    is_paid = models.BooleanField(default=False)
+    paid_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"Order #{self.id} - {self.customer.id}"
+    
+    def total_amount(self):
+        return sum(item.total_price() for item in self.items.all())
 
 
 class OrderItem(models.Model):
@@ -37,3 +42,6 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f"{self.product.name} x {self.quantity}"
+    
+    def total_price(self):
+        return self.quantity * self.product.price

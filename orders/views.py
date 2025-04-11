@@ -54,7 +54,7 @@ def customer_monthly_totals(request):
         order__date__month=now.month
     ).values(
         "order__customer__id"
-    ).annotate(
+    ).annotate( 
         total_amount=Sum(
             ExpressionWrapper(
                 F("quantity") * F("product__price"),
@@ -77,6 +77,99 @@ def customer_monthly_totals(request):
         })
 
     return Response(customer_data)
+
+@api_view(["POST"])
+def mark_order_paid(request, order_id):
+    try:
+        order = Order.objects.get(id=order_id)
+        order.is_paid = True
+        order.paid_at = timezone.now()
+        order.save()
+        return Response({"message": "Order marked as paid."})
+    except Order.DoesNotExist:
+        return Response({"error": "Order not found."}, status=404)
+    
+@api_view(['GET'])
+def customer_total_due(request, id):
+    customer = get_object_or_404(Customer, id=id)
+    unpaid_orders = Order.objects.filter(customer=customer, is_paid=False)
+
+    total_due = sum(order.total_amount() for order in unpaid_orders)
+
+    return Response({
+        "customer_id": customer.id,
+        "customer_name": customer.name,
+        "total_due": float(total_due)
+    })
+
+@api_view(['GET'])
+def monthly_payment_status(request, customer_id):
+    month = int(request.query_params.get('month'))
+    year = int(request.query_params.get('year'))
+
+    start_date = datetime(year, month, 1, tzinfo=timezone.get_current_timezone())
+    end_date = (start_date + relativedelta(months=1))
+
+    customer = get_object_or_404(Customer, id=customer_id)
+    orders = Order.objects.filter(
+        customer=customer,
+        date__gte=start_date,
+        date__lt=end_date
+    )
+
+    paid_orders = orders.filter(is_paid=True)
+    unpaid_orders = orders.filter(is_paid=False)
+
+    paid_total = sum(order.total_amount() for order in paid_orders)
+    unpaid_total = sum(order.total_amount() for order in unpaid_orders)
+
+    return Response({
+        "customer_id": customer.id,
+        "customer_name": customer.name,
+        "month": month,
+        "year": year,
+        "paid_total": float(paid_total),
+        "unpaid_total": float(unpaid_total),
+        "orders": [
+            {
+                "order_id": order.id,
+                "date": order.date.strftime("%Y-%m-%d"),
+                "is_paid": order.is_paid,
+                "total_amount": float(order.total_amount())
+            }
+            for order in orders
+        ]
+    })
+
+@api_view(["POST"])
+def mark_month_orders_paid(request, customer_id):
+    month = int(request.query_params.get('month'))
+    year = int(request.query_params.get('year'))
+
+    start_date = datetime(year, month, 1, tzinfo=timezone.get_current_timezone())
+    end_date = (start_date + relativedelta(months=1))
+
+    customer = get_object_or_404(Customer, id=customer_id)
+
+    orders = Order.objects.filter(
+        customer=customer,
+        date__gte=start_date,
+        date__lt=end_date,
+        is_paid=False  # only unpaid
+    )
+
+    updated_count = 0
+    now = timezone.now()
+
+    for order in orders:
+        order.is_paid = True
+        order.paid_at = now
+        order.save()
+        updated_count += 1
+
+    return Response({
+        "message": f"{updated_count} order(s) marked as paid for {month}/{year}."
+    }, status=200)
 
 
 class OrderCreateView(APIView):
@@ -130,11 +223,14 @@ class CustomerOrderHistoryAPIView(APIView):
             date__gte=date_start,
             date__lt=date_end
         ).order_by('-date', '-id')
-
+        
+        is_month_paid = not orders.filter(is_paid=False).exists()
         # Calculate total amount
         total_amount = OrderItem.objects.filter(
             order__in=orders
         ).aggregate(total_amount=Sum(F('quantity') * F('product__price')))['total_amount'] or 0
+        
+
 
         # Prepare response
         result = {
@@ -142,6 +238,7 @@ class CustomerOrderHistoryAPIView(APIView):
             "customer_name": customer.name,
             "month_year": date_start.strftime("%B %Y"),  # e.g. "April 2023"
             "total_amount": float(total_amount),
+            "is_month_paid": is_month_paid,
             "orders": []
         }
 
@@ -169,10 +266,47 @@ class CustomerOrderHistoryAPIView(APIView):
                 "order_id": order.id,
                 "date": order_time_ist.strftime('%Y-%m-%d %I:%M:%S %p'),
                 "total_amount": float(order_total),
-                "items": item_list
+                "items": item_list,
+                "paid": order.is_paid,
+                "paid_at": order.paid_at.strftime('%Y-%m-%d %I:%M:%S %p') if order.paid_at else None,
             })
 
         return Response(result, status=200)
+    
+
+@api_view(['GET'])
+def monthly_payment_summary(request):
+    """
+    Returns a list of customers with total paid and due amounts for the specified month and year.
+    """
+    month = int(request.query_params.get('month'))
+    year = int(request.query_params.get('year'))
+
+    start_date = datetime(year, month, 1, tzinfo=timezone.get_current_timezone())
+    end_date = start_date + relativedelta(months=1)
+
+    customers = Customer.objects.all()
+    data = []
+
+    for customer in customers:
+        orders = Order.objects.filter(
+            customer=customer,
+            date__gte=start_date,
+            date__lt=end_date
+        )
+
+        paid_total = sum(order.total_amount() for order in orders if order.is_paid)
+        unpaid_total = sum(order.total_amount() for order in orders if not order.is_paid)
+
+        if paid_total > 0 or unpaid_total > 0:
+            data.append({
+                "customer_id": customer.id,
+                "customer_name": customer.name,
+                "paid_amount": float(paid_total),
+                "due_amount": float(unpaid_total)
+            })
+
+    return Response(data)
 
 class ProductListAPIView(ListAPIView):
     queryset = Product.objects.all()
