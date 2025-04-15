@@ -184,6 +184,9 @@ class OrderCreateView(APIView):
         serializer = OrderSerializer(data={**request.data, "customer": customer.id})
         if serializer.is_valid():
             order = serializer.save()
+            for item in order.items.all():
+                item.price_at_order = item.product.price
+                item.save()
             return Response(OrderSerializer(order).data, status=201)
         return Response(serializer.errors, status=400)
 
@@ -248,7 +251,7 @@ class CustomerOrderHistoryAPIView(APIView):
             order_total = 0
 
             for item in items:
-                price = item.product.price
+                price = item.price_at_order
                 quantity = item.quantity
                 item_total = price * quantity
                 order_total += item_total
@@ -311,3 +314,38 @@ def monthly_payment_summary(request):
 class ProductListAPIView(ListAPIView):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
+
+
+class ProductCreateAPIView(APIView):
+    def post(self, request, *args, **kwargs):
+        serializer = ProductSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class ProductUpdateAPIView(APIView):
+    def put(self, request, pk, *args, **kwargs):
+        try:
+            product = Product.objects.get(pk=pk)
+        except Product.DoesNotExist:
+            return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ProductSerializer(product, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+
+class ProductDeleteAPIView(APIView):
+    def delete(self, request, pk, *args, **kwargs):
+        try:
+            product = Product.objects.get(pk=pk)
+        except Product.DoesNotExist:
+            return Response({"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        product.delete()
+        return Response({"message": "Product deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+

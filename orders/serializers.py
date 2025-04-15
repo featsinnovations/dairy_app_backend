@@ -50,10 +50,14 @@ class OrderItemSerializer(serializers.ModelSerializer):
     product_id = serializers.PrimaryKeyRelatedField(
         queryset=Product.objects.all(), source='product', write_only=True
     )
+    price_at_order=serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
-        fields = ['product', 'product_id', 'quantity']
+        fields = ['product', 'product_id', 'quantity', 'price_at_order']
+
+    def get_price_at_order(self, obj):
+        return obj.product.price if obj.product else None
 
 
 class OrderSerializer(serializers.ModelSerializer):

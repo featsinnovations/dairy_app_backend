@@ -8,7 +8,7 @@ class Customer(models.Model):
     address = models.TextField(null=True, blank=True)
 
     def __str__(self):
-        return str(self.id)
+        return f"{self.name} (ID: {self.id})"
 
 
 class Product(models.Model):
@@ -39,6 +39,7 @@ class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.PositiveIntegerField()
+    price_at_order = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
 
     def __str__(self):
         return f"{self.product.name} x {self.quantity}"

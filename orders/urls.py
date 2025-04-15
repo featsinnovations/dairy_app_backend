@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import OrderCreateView, CustomerOrderHistoryAPIView, ProductListAPIView, verify_customer, customer_monthly_totals, mark_order_paid, customer_total_due, monthly_payment_status, mark_month_orders_paid, monthly_payment_summary
+from .views import OrderCreateView, CustomerOrderHistoryAPIView, ProductListAPIView, verify_customer, customer_monthly_totals, mark_order_paid, customer_total_due, monthly_payment_status, mark_month_orders_paid, monthly_payment_summary, ProductCreateAPIView, ProductUpdateAPIView, ProductDeleteAPIView
 
 urlpatterns = [
     path('orders/', OrderCreateView.as_view(), name='create-order'),
@@ -12,5 +12,8 @@ urlpatterns = [
     path('customer/<int:customer_id>/monthly-status/', monthly_payment_status, name='monthly-payment-status'),
     path('customer/<int:customer_id>/mark-paid/', mark_month_orders_paid, name='mark-month-orders-paid'),
     path('payment-summary/',monthly_payment_summary, name='monthly-payment-summary'),
+    path('products/create/', ProductCreateAPIView.as_view(), name='create-product'),
+    path('products/<int:pk>/update/', ProductUpdateAPIView.as_view(), name='update-product'),
+    path('products/<int:pk>/delete/', ProductDeleteAPIView.as_view(), name='delete-product'),
 ]
 
